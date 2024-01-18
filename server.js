@@ -47,72 +47,14 @@ app.get("/fetch-emails", async (req, res) => {
           threadId: true,
           labels: true,
           headers: true,
-
           bodyParts: ["TEXT"],
         }
       )) {
-        console.log("BODY PARTS: ", message.bodyParts);
+        console.log(message);
+
         const bodyText =
           Buffer.from(message?.bodyParts?.get("text"))?.toString("ascii") || "";
-
-        const dateMatch = bodyText.match(/Date: ([^\n]+)/);
-        const date = dateMatch ? dateMatch[1].trim() : null;
-
-        // Extract vehicle information
-        const vinMatch = bodyText.match(/VIN: ([^\n]+)/);
-        const yearMatch = bodyText.match(/Year: (\d+)/);
-        const makeMatch = bodyText.match(/Make: ([^\n]+)/);
-        const modelMatch = bodyText.match(/Model: ([^\n]+)/);
-        const stockMatch = bodyText.match(/Stock: ([^\n]+)/);
-        const trimMatch = bodyText.match(/Trim: ([^\n]+)/);
-        const interiorColorMatch = bodyText.match(/Interior color: ([^\n]+)/);
-        const exteriorColorMatch = bodyText.match(/Exterior color: ([^\n]+)/);
-        const dealerPriceMatch = bodyText.match(/Dealer Price: \$([\d,]+)/);
-
-        const vehicleObject = {
-          VIN: vinMatch ? vinMatch[1].trim() : null,
-          Year: yearMatch ? parseInt(yearMatch[1]) : null,
-          Make: makeMatch ? makeMatch[1].trim() : null,
-          Model: modelMatch ? modelMatch[1].trim() : null,
-          Stock: stockMatch ? stockMatch[1].trim() : null,
-          Trim: trimMatch ? trimMatch[1].trim() : null,
-          InteriorColor: interiorColorMatch
-            ? interiorColorMatch[1].trim()
-            : null,
-          ExteriorColor: exteriorColorMatch
-            ? exteriorColorMatch[1].trim()
-            : null,
-          DealerPrice: dealerPriceMatch
-            ? parseFloat(dealerPriceMatch[1].replace(/,/g, ""))
-            : null,
-        };
-
-        // Extract customer information
-        const customerMatch = bodyText.match(
-          /Customer([\s\S]+?)Source="([^"]+)"/
-        );
-        const firstNameMatch = bodyText.match(/First name: (\S+)/);
-        const lastNameMatch = bodyText.match(/Last name: (\S+)/);
-        const emailMatch = bodyText.match(/E-mail: (\S+)/);
-        const phoneMatch = bodyText.match(/Phone: (\S+)/);
-        const cityMatch = bodyText.match(/City: (\S+)/);
-        const stateMatch = bodyText.match(/State: (\S+)/);
-        const postalCodeMatch = bodyText.match(/Postal Code: (\S+)/);
-        const commentsMatch = bodyText.match(/Comments: ([^\n]+)/);
-
-        const customerObject = {
-          FirstName: firstNameMatch ? firstNameMatch[1].trim() : null,
-          LastName: lastNameMatch ? lastNameMatch[1].trim() : null,
-          Email: emailMatch ? emailMatch[1].trim() : null,
-          Phone: phoneMatch ? phoneMatch[1].trim() : null,
-          City: cityMatch ? cityMatch[1].trim() : null,
-          State: stateMatch ? stateMatch[1].trim() : null,
-          PostalCode: postalCodeMatch ? postalCodeMatch[1].trim() : null,
-          Comments: commentsMatch ? commentsMatch[1].trim() : null,
-          Source: customerMatch ? customerMatch[2].trim() : null,
-        };
-
-        console.log("MESSAGE: ", message);
+        const data = parsePlainTextData(bodyText);
 
         emails.push({
           uid: message?.uid,
@@ -120,11 +62,7 @@ app.get("/fetch-emails", async (req, res) => {
           subject: message?.envelope?.subject,
           form: message?.envelope?.form?.address,
           bodyText: bodyText,
-          data: {
-            Date: date,
-            Vehicle: vehicleObject,
-            Customer: customerObject,
-          },
+          data,
         });
       }
 
@@ -147,3 +85,64 @@ app.get("/fetch-emails", async (req, res) => {
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
 });
+
+const parsePlainTextData = (bodyText) => {
+  if (!bodyText) return null;
+
+  const dateMatch = bodyText.match(/Date: ([^\n]+)/);
+  const date = dateMatch ? dateMatch[1].trim() : null;
+
+  // Extract vehicle information
+  const vinMatch = bodyText.match(/VIN: ([^\n]+)/);
+  const yearMatch = bodyText.match(/Year: (\d+)/);
+  const makeMatch = bodyText.match(/Make: ([^\n]+)/);
+  const modelMatch = bodyText.match(/Model: ([^\n]+)/);
+  const stockMatch = bodyText.match(/Stock: ([^\n]+)/);
+  const trimMatch = bodyText.match(/Trim: ([^\n]+)/);
+  const interiorColorMatch = bodyText.match(/Interior color: ([^\n]+)/);
+  const exteriorColorMatch = bodyText.match(/Exterior color: ([^\n]+)/);
+  const dealerPriceMatch = bodyText.match(/Dealer Price: \$([\d,]+)/);
+
+  const vehicleObject = {
+    VIN: vinMatch ? vinMatch[1].trim() : null,
+    Year: yearMatch ? parseInt(yearMatch[1]) : null,
+    Make: makeMatch ? makeMatch[1].trim() : null,
+    Model: modelMatch ? modelMatch[1].trim() : null,
+    Stock: stockMatch ? stockMatch[1].trim() : null,
+    Trim: trimMatch ? trimMatch[1].trim() : null,
+    InteriorColor: interiorColorMatch ? interiorColorMatch[1].trim() : null,
+    ExteriorColor: exteriorColorMatch ? exteriorColorMatch[1].trim() : null,
+    DealerPrice: dealerPriceMatch
+      ? parseFloat(dealerPriceMatch[1].replace(/,/g, ""))
+      : null,
+  };
+
+  // Extract customer information
+  const customerMatch = bodyText.match(/Customer([\s\S]+?)Source="([^"]+)"/);
+  const firstNameMatch = bodyText.match(/First name: (\S+)/);
+  const lastNameMatch = bodyText.match(/Last name: (\S+)/);
+  const emailMatch = bodyText.match(/E-mail: (\S+)/);
+  const phoneMatch = bodyText.match(/Phone: (\S+)/);
+  const cityMatch = bodyText.match(/City: (\S+)/);
+  const stateMatch = bodyText.match(/State: (\S+)/);
+  const postalCodeMatch = bodyText.match(/Postal Code: (\S+)/);
+  const commentsMatch = bodyText.match(/Comments: ([^\n]+)/);
+
+  const customerObject = {
+    FirstName: firstNameMatch ? firstNameMatch[1].trim() : null,
+    LastName: lastNameMatch ? lastNameMatch[1].trim() : null,
+    Email: emailMatch ? emailMatch[1].trim() : null,
+    Phone: phoneMatch ? phoneMatch[1].trim() : null,
+    City: cityMatch ? cityMatch[1].trim() : null,
+    State: stateMatch ? stateMatch[1].trim() : null,
+    PostalCode: postalCodeMatch ? postalCodeMatch[1].trim() : null,
+    Comments: commentsMatch ? commentsMatch[1].trim() : null,
+    Source: customerMatch ? customerMatch[2].trim() : null,
+  };
+
+  return {
+    Date: date,
+    Vehicle: vehicleObject,
+    Customer: customerObject,
+  };
+};
