@@ -28,7 +28,7 @@ app.get('/fetch-emails', async (req, res) => {
 
     const date = new Date(today);
     date.setDate(today.getDate() - 5);
-
+    // change sent since to the number of hours you want to check emails after.
     let lock = await client.getMailboxLock('INBOX');
     try {
       for await (let message of client.fetch(
@@ -37,15 +37,7 @@ app.get('/fetch-emails', async (req, res) => {
         },
         {
           envelope: true,
-          uid: true,
-          flags: true,
-          internalDate: true,
-          size: true,
-          source: true,
-          threadId: true,
-          labels: true,
-          headers: true,
-          bodyParts: ['TEXT']
+          source: true
         }
       )) {
         const subject = message?.envelope?.subject;
