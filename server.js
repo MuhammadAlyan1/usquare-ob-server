@@ -1,27 +1,25 @@
-const express = require("express");
-const bodyParser = require("body-parser");
-const { ImapFlow } = require("imapflow");
-const { simpleParser } = require("mailparser");
+const express = require('express');
+const bodyParser = require('body-parser');
+const { ImapFlow } = require('imapflow');
+const { simpleParser } = require('mailparser');
 const app = express();
 const port = 3000;
-const he = require("he");
+const he = require('he');
 
 app.use(bodyParser.json());
 
-app.get("/fetch-emails", async (req, res) => {
-  // Create an IMAP connection using imapflow
+app.get('/fetch-emails', async (req, res) => {
   const client = new ImapFlow({
-    host: "imap.gmail.com",
+    host: 'imap.gmail.com',
     port: 993,
     secure: true,
     auth: {
-      user: "alyan0332@gmail.com",
-      pass: "krac hfjx sdis lvgu",
-    },
+      user: 'alyan0332@gmail.com',
+      pass: 'krac hfjx sdis lvgu'
+    }
   });
 
   try {
-    // Wait until client connects and authorizes
     await client.connect();
 
     const emails = [];
@@ -31,11 +29,11 @@ app.get("/fetch-emails", async (req, res) => {
     const date = new Date(today);
     date.setDate(today.getDate() - 5);
 
-    let lock = await client.getMailboxLock("INBOX");
+    let lock = await client.getMailboxLock('INBOX');
     try {
       for await (let message of client.fetch(
         {
-          sentSince: date.toISOString(),
+          sentSince: date.toISOString()
         },
         {
           envelope: true,
@@ -47,34 +45,35 @@ app.get("/fetch-emails", async (req, res) => {
           threadId: true,
           labels: true,
           headers: true,
-          bodyParts: ["TEXT"],
+          bodyParts: ['TEXT']
         }
       )) {
-        const parsedEmail = await simpleParser(message.source);
+        const subject = message?.envelope?.subject;
+        if (!subject) continue;
 
-        const bodyText =
-          Buffer.from(message?.bodyParts?.get("text"))?.toString("ascii") || "";
-        const data = parsePlainTextData(bodyText);
+        const carsForSaleRegex = /carsforsale.com/gi;
+        const autoTraderRegex = /autotrader/gi;
+        const edmundsDealerDirectRegex = /edmunds\s*DealerDirect/gi;
 
-        const vehicleQueryRegex = /you have a new vehicle inquiry/gi;
-        const autoTraderRegex = /\*autotrader\*/gi;
+        let data = null;
 
-        let htmlToTextData = null;
-        if (parsedEmail?.textAsHtml?.match(vehicleQueryRegex)) {
-          htmlToTextData = parseHtmlToTextData(parsedEmail?.textAsHtml);
-        } else if (parsedEmail?.textAsHtml?.match(autoTraderRegex)) {
-          htmlToTextData = parseAutoTraderHtmlToTextData(
-            parsedEmail?.textAsHtml
-          );
+        if (subject.match(edmundsDealerDirectRegex)) {
+          const parsedEmail = await simpleParser(message?.source);
+          data = parseEdmundsDealerDirectLeads(parsedEmail?.textAsHtml);
+        } else if (subject.match(carsForSaleRegex)) {
+          const parsedEmail = await simpleParser(message?.source);
+          data = parseCarsForSaleLeads(parsedEmail?.textAsHtml);
+        } else if (subject.match(autoTraderRegex)) {
+          const parsedEmail = await simpleParser(message?.source);
+          data = parseAutoTraderLeads(parsedEmail?.textAsHtml);
+        } else {
+          continue;
         }
 
         emails.push({
-          uid: message?.uid,
           date: message?.envelope?.date,
-          subject: message?.envelope?.subject,
-          form: message?.envelope?.form?.address,
-          data,
-          htmlToTextData,
+          subject,
+          data
         });
       }
     } finally {
@@ -86,7 +85,7 @@ app.get("/fetch-emails", async (req, res) => {
     res.json(emails);
   } catch (error) {
     console.error(error);
-    res.status(500).json({ error: "Error fetching emails" });
+    res.status(500).json({ error: 'Error fetching emails' });
   }
 });
 
@@ -94,68 +93,130 @@ app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
 });
 
-const parsePlainTextData = (bodyText) => {
-  if (!bodyText) return null;
+const parseEdmundsDealerDirectLeads = (text) => {
+  if (!text) return null;
 
-  const dateMatch = bodyText.match(/Date: ([^\n]+)/);
-  const date = dateMatch ? dateMatch[1].trim() : null;
-
-  // Extract vehicle information
-  const vinMatch = bodyText.match(/VIN: ([^\n]+)/);
-  const yearMatch = bodyText.match(/Year: (\d+)/);
-  const makeMatch = bodyText.match(/Make: ([^\n]+)/);
-  const modelMatch = bodyText.match(/Model: ([^\n]+)/);
-  const stockMatch = bodyText.match(/Stock: ([^\n]+)/);
-  const trimMatch = bodyText.match(/Trim: ([^\n]+)/);
-  const interiorColorMatch = bodyText.match(/Interior color: ([^\n]+)/);
-  const exteriorColorMatch = bodyText.match(/Exterior color: ([^\n]+)/);
-  const dealerPriceMatch = bodyText.match(/Dealer Price: \$([\d,]+)/);
-
-  const vehicleObject = {
-    VIN: vinMatch ? vinMatch[1].trim() : null,
-    Year: yearMatch ? parseInt(yearMatch[1]) : null,
-    Make: makeMatch ? makeMatch[1].trim() : null,
-    Model: modelMatch ? modelMatch[1].trim() : null,
-    Stock: stockMatch ? stockMatch[1].trim() : null,
-    Trim: trimMatch ? trimMatch[1].trim() : null,
-    InteriorColor: interiorColorMatch ? interiorColorMatch[1].trim() : null,
-    ExteriorColor: exteriorColorMatch ? exteriorColorMatch[1].trim() : null,
-    DealerPrice: dealerPriceMatch
-      ? parseFloat(dealerPriceMatch[1].replace(/,/g, ""))
-      : null,
+  regex = {
+    customerEmail:
+      /E-mail:\s*<a\s*href="mailto:([\w.-]+@([\w-]+\.)+[\w-]{2,4})/gi,
+    customerFirstName: /first\s*name:\s*[a-z,.\s]*/gi,
+    customerLastName: /last\s*name:\s*[a-z,.\s]*/gi,
+    customerCity: /city:\s*[a-z,.]+/gi,
+    customerState: /state:\s*[a-z,.]+/gi,
+    customerPostalCode: /postal\s*code:\s*[0-9]{5}/gi,
+    customerPhoneNumber: /phone:\s((?!<br\/>).)+/gi,
+    comment: /comments:\s[a-z\s.,]*/gi,
+    vehicleMake: /make:\s*([a-z]+\.?\s*)+/gi,
+    vehicleModel: /model:\s*([a-z]+\.?\s*)+/gi,
+    vehicleYear: /year:\s*[0-9]+/gi,
+    vehiclePrice: /price:\s*\$([0-9,.]+)+/gi,
+    vehicleInteriorColor: /interior\s*color:\s*[a-z,.]+/gi,
+    vehicleExteriorColor: /exterior\s*color:\s*[a-z,.]+/gi,
+    vehicleVin: /vin:\s*[a-z0-9]{17}/gi,
+    vehicleTrim: /trim:\s*[a-z0-9/\s.,/(/))]+/gi,
+    vehicleStock: /stock\s*:\s*[a-z0-9]+/gi,
+    vehicleDescription: /vehicle\s*description:<\/p><p>((?!<\/p>).)+/gi
   };
 
-  // Extract customer information
-  const customerMatch = bodyText.match(/Customer([\s\S]+?)Source="([^"]+)"/);
-  const firstNameMatch = bodyText.match(/First name: (\S+)/);
-  const lastNameMatch = bodyText.match(/Last name: (\S+)/);
-  const emailMatch = bodyText.match(/E-mail: (\S+)/);
-  const phoneMatch = bodyText.match(/Phone: (\S+)/);
-  const cityMatch = bodyText.match(/City: (\S+)/);
-  const stateMatch = bodyText.match(/State: (\S+)/);
-  const postalCodeMatch = bodyText.match(/Postal Code: (\S+)/);
-  const commentsMatch = bodyText.match(/Comments: ([^\n]+)/);
+  const firstNameResult = text.match(regex.customerFirstName);
+  const firstName =
+    firstNameResult && firstNameResult[0]?.split(/name:/gi)[1]?.trim();
 
-  const customerObject = {
-    FirstName: firstNameMatch ? firstNameMatch[1].trim() : null,
-    LastName: lastNameMatch ? lastNameMatch[1].trim() : null,
-    Email: emailMatch ? emailMatch[1].trim() : null,
-    Phone: phoneMatch ? phoneMatch[1].trim() : null,
-    City: cityMatch ? cityMatch[1].trim() : null,
-    State: stateMatch ? stateMatch[1].trim() : null,
-    PostalCode: postalCodeMatch ? postalCodeMatch[1].trim() : null,
-    Comments: commentsMatch ? commentsMatch[1].trim() : null,
-    Source: customerMatch ? customerMatch[2].trim() : null,
-  };
+  const lastNameResult = text.match(regex.customerLastName);
+  const lastName =
+    lastNameResult && lastNameResult[0]?.split(/name:/gi)[1]?.trim();
+
+  const emailResult = text.match(regex.customerEmail);
+  const email = emailResult && emailResult[0]?.split(/mailto:/gi)[1]?.trim();
+
+  const cityResult = text.match(regex.customerCity);
+  const city = cityResult && cityResult[0]?.split(/city:/gi)[1]?.trim();
+
+  const postalCodeResult = text.match(regex.customerPostalCode);
+  const customerPostalCode =
+    postalCodeResult &&
+    postalCodeResult[0]?.split(/postal\s*code:/gi)[1]?.trim();
+
+  const stateResult = text.match(regex.customerState);
+  const state = stateResult && stateResult[0]?.split(/state:/gi)[1]?.trim();
+
+  const phoneNumberResult = text.match(regex.customerPhoneNumber);
+  let customerPhoneNumber =
+    phoneNumberResult && phoneNumberResult[0]?.split(/phone:/gi)[1]?.trim();
+
+  if (customerPhoneNumber?.match(/Customer did not specify/gi)) {
+    customerPhoneNumber = null;
+  }
+
+  const commentResult = text.match(regex.comment);
+  const comment =
+    commentResult && commentResult[0]?.split(/comments:\s*/gi)[1]?.trim();
+
+  const vehicleMakeResult = text.match(regex.vehicleMake);
+  const vehicleMake =
+    vehicleMakeResult && vehicleMakeResult[0]?.split(/make:/gi)[1]?.trim();
+
+  const vehicleModelResult = text.match(regex.vehicleModel);
+  const vehicleModel =
+    vehicleModelResult && vehicleModelResult[0]?.split(/model:/gi)[1]?.trim();
+
+  const vehicleYearResult = text.match(regex.vehicleYear);
+  const vehicleYear =
+    vehicleYearResult && vehicleYearResult[0]?.split(/year:/gi)[1]?.trim();
+
+  const vehiclePriceResult = text.match(regex.vehiclePrice);
+  const vehiclePrice =
+    vehiclePriceResult && vehiclePriceResult[0]?.split(/price:/gi)[1]?.trim();
+
+  const vehicleVinResult = text.match(regex.vehicleVin);
+  const vehicleVin =
+    vehicleVinResult && vehicleVinResult[0]?.split(/vin:/gi)[1]?.trim();
+
+  const vehicleInteriorColorResult = text.match(regex.vehicleInteriorColor);
+  const vehicleInteriorColor =
+    vehicleInteriorColorResult &&
+    vehicleInteriorColorResult[0]?.split(/color:/gi)[1]?.trim();
+
+  const vehicleExteriorColorResult = text.match(regex.vehicleExteriorColor);
+  const vehicleExteriorColor =
+    vehicleExteriorColorResult &&
+    vehicleExteriorColorResult[0]?.split(/color:/gi)[1]?.trim();
+
+  const vehicleTrimResult = text.match(regex.vehicleTrim);
+  const vehicleTrim =
+    vehicleTrimResult && vehicleTrimResult[0]?.split(/trim:/gi)[1]?.trim();
+
+  const vehicleStockIdResult = text.match(regex.vehicleStock);
+  const vehicleStock =
+    vehicleStockIdResult &&
+    vehicleStockIdResult[0]?.split(/stock\s*:/gi)[1]?.trim();
 
   return {
-    Date: date,
-    Vehicle: vehicleObject,
-    Customer: customerObject,
+    customer: {
+      email: email || null,
+      city: city || null,
+      state: state || null,
+      postalCode: parseInt(customerPostalCode) || null,
+      firstName: firstName || null,
+      lastName: lastName || null,
+      phone: customerPhoneNumber || null,
+      comments: comment || null
+    },
+    vehicle: {
+      make: vehicleMake || null,
+      model: vehicleModel || null,
+      year: parseInt(vehicleYear) || null,
+      price: vehiclePrice || null,
+      vin: vehicleVin || null,
+      trim: vehicleTrim || null,
+      exteriorColor: vehicleExteriorColor || null,
+      interiorColor: vehicleInteriorColor || null,
+      stock: vehicleStock || null
+    }
   };
 };
 
-const parseHtmlToTextData = (text) => {
+const parseCarsForSaleLeads = (text) => {
   if (!text) return null;
 
   const regex = {
@@ -170,65 +231,69 @@ const parseHtmlToTextData = (text) => {
     customerMetaData: /comments<br\/>(.*?)<br\/>\d{10}<br\/>/gi,
     comment: /comments<br\/>[a-z\s.,']*<br\/>/gi,
     phoneNumber: /<br\/>(\d*)<br\/>/gi,
-    fullName: /<br\/>[a-z]*\s*[a-z]*\s*[a-z]*\s*<br\/>/gi,
+    fullName: /<br\/>[a-z]*\s*[a-z]*\s*[a-z]*\s*<br\/>/gi
   };
 
   const yearResult = text.match(regex.year);
-  const year = yearResult && yearResult[0]?.split(":")[1]?.trim();
+  const year = yearResult && yearResult[0]?.split(':')[1]?.trim();
 
   const makeResult = text.match(regex.make);
-  const make = makeResult && he.decode(makeResult[0]?.split(":")[1]?.trim());
+  const make = makeResult && he.decode(makeResult[0]?.split(':')[1]?.trim());
 
   const modelResult = text.match(regex.model);
-  const model = modelResult && he.decode(modelResult[0]?.split(":")[1]?.trim());
+  const model = modelResult && he.decode(modelResult[0]?.split(':')[1]?.trim());
 
   const colorResult = text.match(regex.color);
-  const color = colorResult && he.decode(colorResult[0]?.split(":")[1]?.trim());
+  const color = colorResult && he.decode(colorResult[0]?.split(':')[1]?.trim());
 
   const priceResult = text.match(regex.price);
-  const price = priceResult && priceResult[0]?.split(":")[1]?.trim();
+  const price = priceResult && priceResult[0]?.split(':')[1]?.trim();
 
   const mileageResult = text.match(regex.mileage);
   const mileage =
-    mileageResult && he.decode(mileageResult[0]?.split(":")[1]?.trim());
+    mileageResult && he.decode(mileageResult[0]?.split(':')[1]?.trim());
 
   const stockNumberResult = text.match(regex.stockNumber);
   const stockNumber =
-    stockNumberResult && he.decode(stockNumberResult[0]?.split(":")[1]?.trim());
+    stockNumberResult && he.decode(stockNumberResult[0]?.split(':')[1]?.trim());
 
   const lotResult = text.match(regex.lot);
-  const lot = lotResult && he.decode(lotResult[0]?.split(":")[1]?.trim());
+  const lot = lotResult && he.decode(lotResult[0]?.split(':')[1]?.trim());
 
   const customerMetaDataString = text.match(regex.customerMetaData);
 
   const commentResult = customerMetaDataString[0]?.match(regex.comment);
   const comment =
-    commentResult && he.decode(commentResult[0]?.split("<br/>")[1]?.trim());
+    commentResult && he.decode(commentResult[0]?.split('<br/>')[1]?.trim());
 
   const phoneNumberResult = customerMetaDataString[0].match(regex.phoneNumber);
   const phoneNumber =
-    phoneNumberResult && phoneNumberResult[0]?.split("<br/>")[1]?.trim();
+    phoneNumberResult && phoneNumberResult[0]?.split('<br/>')[1]?.trim();
 
   const fullNameResult = customerMetaDataString[0].match(regex.fullName);
   const fullName =
-    fullNameResult && he.decode(fullNameResult[0]?.split("<br/>")[1]?.trim());
+    fullNameResult && he.decode(fullNameResult[0]?.split('<br/>')[1]?.trim());
 
   return {
-    year: year || null,
-    make: make || null,
-    model: model || null,
-    color: color || null,
-    price: price || null,
-    mileage: mileage || null,
-    stockNumber: stockNumber || null,
-    lot: lot || null,
-    comment: comment || null,
-    fullName: fullName || null,
-    phoneNumber: phoneNumber || null,
+    vehicle: {
+      year: year || null,
+      make: make || null,
+      model: model || null,
+      color: color || null,
+      price: price || null,
+      mileage: mileage || null,
+      stockNumber: stockNumber || null,
+      lot: lot || null
+    },
+    customer: {
+      comment: comment || null,
+      fullName: fullName || null,
+      phoneNumber: phoneNumber || null
+    }
   };
 };
 
-const parseAutoTraderHtmlToTextData = (text) => {
+const parseAutoTraderLeads = (text) => {
   if (!text) return null;
 
   regex = {
@@ -251,20 +316,20 @@ const parseAutoTraderHtmlToTextData = (text) => {
     vehicleCylinders: /\*cylinders:\*\s*[a-z0-9-/\s.,]+/gi,
     vehicleTransmission: /\*transmission:\*\s*[a-z-/\s.,]+/gi,
     vehicleStockId: /\*stock\s*id:\*\s*[a-z0-9]+/gi,
-    vehicleDescription: /\*vehicle\s*description:\*<\/p><p>((?!<\/p>).)+/gi,
+    vehicleDescription: /\*vehicle\s*description:\*<\/p><p>((?!<\/p>).)+/gi
   };
 
   const fullNameResult = text.match(regex.customerName);
   const fullName = fullNameResult[0]?.split(/\*name:\*/gi)[1]?.trim();
 
   const emailResult = text.match(regex.email);
-  const email = emailResult && emailResult[0]?.split("mailto:")[1]?.trim();
+  const email = emailResult && emailResult[0]?.split('mailto:')[1]?.trim();
 
   const phoneNumberResult = text.match(regex.phoneNumber);
   let phoneNumber =
     phoneNumberResult && phoneNumberResult[0]?.split(/\*phone:\*/gi)[1]?.trim();
 
-  if (phoneNumber.match(/\*Customer did not specify\*/gi)) {
+  if (phoneNumber?.match(/\*Customer did not specify\*/gi)) {
     phoneNumber = null;
   }
 
@@ -273,7 +338,7 @@ const parseAutoTraderHtmlToTextData = (text) => {
     bestContactTimeResult &&
     bestContactTimeResult[0]?.split(/\*Best Contact Time:\*/gi)?.[1].trim();
 
-  if (bestContactTime.match(/\*Customer did not specify\*/gi)) {
+  if (bestContactTime?.match(/\*Customer did not specify\*/gi)) {
     bestContactTime = null;
   }
 
@@ -350,24 +415,28 @@ const parseAutoTraderHtmlToTextData = (text) => {
       ?.trim();
 
   return {
-    customerName: fullName || null,
-    customerEmail: email || null,
-    customerPhone: phoneNumber || null,
-    bestContactTime: bestContactTime || null,
-    zipcode: parseInt(zipcode) || null,
-    customerComments: comment || null,
-    vehicleMake: vehicleMake || null,
-    vehicleModel: vehicleModel || null,
-    vehicleYear: parseInt(vehicleYear) || null,
-    vehiclePrice: vehiclePrice || null,
-    vehicleMileage: vehicleMileage || null,
-    vehicleBodyStyle: vehicleBodyStyle || null,
-    vehicleVin: vehicleVin || null,
-    vehicleTrim: vehicleTrim || null,
-    vehicleColor: vehicleColor || null,
-    vehicleCylinders: vehicleCylinders || null,
-    vehicleTransmission: vehicleTransmission || null,
-    vehicleStockId: vehicleStockId || null,
-    vehicleDescription: vehicleDescription || null,
+    customer: {
+      fullName: fullName || null,
+      email: email || null,
+      phone: phoneNumber || null,
+      bestContactTime: bestContactTime || null,
+      zipcode: parseInt(zipcode) || null,
+      comments: comment || null
+    },
+    vehicle: {
+      make: vehicleMake || null,
+      model: vehicleModel || null,
+      year: parseInt(vehicleYear) || null,
+      price: vehiclePrice || null,
+      mileage: vehicleMileage || null,
+      bodyStyle: vehicleBodyStyle || null,
+      vin: vehicleVin || null,
+      trim: vehicleTrim || null,
+      color: vehicleColor || null,
+      cylinders: vehicleCylinders || null,
+      transmission: vehicleTransmission || null,
+      stockId: vehicleStockId || null,
+      description: vehicleDescription || null
+    }
   };
 };
